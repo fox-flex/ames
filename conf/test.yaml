@@ -1,9 +1,12 @@
 defaults:
   - dataset@test_dataset: roxford
+  - dataset@test_dataset_db: roxford
+  - dataset@test_dataset_q: roxford
   - model: ames
   - _self_
 
-data_root:
+imgs_per_query: 5
+data_root: ../revisitop/data/datasets
 cpu: False
 resume:
 seed: 0

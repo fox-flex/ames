@@ -1,5 +1,6 @@
 import argparse
 import os
+import os.path as osp
 import pickle
 from functools import partial
 
@@ -20,8 +21,6 @@ def main():
 
     parser.add_argument('--save_path', default='data', type=str)
     parser.add_argument('--data_path', type=str)
-    parser.add_argument('--file_name',
-                        help='file name to parse image paths')
 
 
     parser.add_argument('--dataset',
@@ -35,10 +34,20 @@ def main():
 
 
     args = parser.parse_args()
-    dataset, file_name, imsize, topk = args.dataset, args.file_name, args.imsize, args.topk
+    file_name = f'{args.dataset}{args.split}.txt'
+    dataset, imsize, topk = args.dataset, args.imsize, args.topk
+    config_file = osp.join(osp.dirname(osp.abspath(__file__)), '..', 'conf', 'dataset', f'{dataset}.yaml')
+    with open(config_file, 'w') as f:
+        f.write(f'''defaults:
+  - test_dataset
 
-    save_path = f"{args.save_path}/{dataset.lower()}"
-    im_paths = read_imlist(os.path.join(save_path, args.file_name))
+name: '{dataset}'
+
+# test_gnd_file: 'gnd_{dataset}.pkl'
+''')
+
+    save_path = osp.join(args.save_path, dataset.lower())
+    im_paths = read_imlist(osp.join(save_path, file_name))
 
     if args.backbone == 'dinov2':
         global_dim = local_dim = 768
@@ -60,19 +69,20 @@ def main():
     model.eval()
 
     detector = None
-    if os.path.exists(args.detector):
+    if osp.exists(args.detector):
         detector = SpatialAttention2d(local_dim)
         detector.cuda()
         detector.eval()
-        cpt = torch.load(args.detector)
+        cpt = torch.load(args.detector, weights_only=False)
         detector.load_state_dict(cpt['state'], strict=True)
 
+    data_path = osp.join(args.data_path, dataset, 'jpg')
     if args.split == '_query' and dataset in ['roxford5k', 'rparis6k', 'instre']:
-        with open(os.path.join(args.data_path, f'gnd_{dataset.lower()}.pkl'), 'rb') as fin:
+        with open(osp.join(args.data_path, f'gnd_{dataset.lower()}.pkl'), 'rb') as fin:
             gnd = pickle.load(fin)['gnd']
-        dataset = DataSet(dataset, args.data_path, scale_list, im_paths, imsize=imsize, gnd=gnd, patch_size=ps)
+        dataset = DataSet(dataset, data_path, scale_list, im_paths, imsize=imsize, gnd=gnd, patch_size=ps)
     else:
-        dataset = DataSet(dataset, args.data_path, scale_list, im_paths, imsize=imsize, patch_size=ps)
+        dataset = DataSet(dataset, data_path, scale_list, im_paths, imsize=imsize, patch_size=ps)
 
     dataloader = torch.utils.data.DataLoader(
         dataset,
@@ -88,6 +98,7 @@ def main():
 
     feature_storage = FeatureStorage(save_path, args.backbone, args.split, file_name, global_dim, local_dim,
                                      len(dataset), args.desc_type, topk=topk)
+    feature_storage.set_names(dataloader.dataset.data_path)
     extract_f(model, detector, feature_storage, dataloader, topk)
 
 

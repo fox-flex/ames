@@ -1,0 +1,6 @@
+defaults:
+  - test_dataset
+
+name: 'query'
+
+# test_gnd_file: 'gnd_query.pkl'

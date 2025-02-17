@@ -15,19 +15,19 @@ def basic_collate(batch):
     return batch[0]
 
 
-def get_test_sets(desc_name, test_dataset):
-    test_gnd_data = None if test_dataset.test_gnd_file is None else pickle_load(osp.join(test_dataset.test_data_dir, test_dataset.test_gnd_file))['gnd']
+def get_test_sets(desc_name, test_dataset, test_dataset_db, test_dataset_q):
+    test_gnd_data = None if test_dataset_db.test_gnd_file is None else pickle_load(osp.join(test_dataset_db.test_data_dir, test_dataset_db.test_gnd_file))['gnd']
 
-    gallery_set = TestDataset(test_dataset.name, test_dataset.desc_dir, desc_name + '_gallery_local.hdf5',
+    gallery_set = TestDataset(test_dataset_db.name, test_dataset_db.desc_dir_db, desc_name + '_gallery_local.hdf5',
                                    sequence_len=test_dataset.sequence_len)
-    query_set   = TestDataset(test_dataset.name, test_dataset.desc_dir, desc_name + '_query_local.hdf5',
-                                    sequence_len=test_dataset.query_sequence_len, gnd_data=test_gnd_data, nn_file=test_dataset.nn_file)
+    query_set   = TestDataset(test_dataset_q.name, test_dataset_q.desc_dir_q, desc_name + '_query_local.hdf5',
+                                    sequence_len=test_dataset.query_sequence_len, gnd_data=test_gnd_data, nn_file=test_dataset_q.nn_file)
 
     return query_set, gallery_set
 
 
-def get_test_loaders(desc_name, test_dataset, num_workers=8):
-    query_set, gallery_set = get_test_sets(desc_name, test_dataset)
+def get_test_loaders(desc_name, test_dataset, test_dataset_db, test_dataset_q, num_workers=8):
+    query_set, gallery_set = get_test_sets(desc_name, test_dataset, test_dataset_db, test_dataset_q)
 
     query_sampler = BatchSampler(SequentialSampler(query_set), batch_size=test_dataset.batch_size, drop_last=False)
     gallery_sampler = BatchSampler(SequentialSampler(gallery_set), batch_size=test_dataset.batch_size, drop_last=False)

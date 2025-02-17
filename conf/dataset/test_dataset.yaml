@@ -1,7 +1,8 @@
 
 name:
-desc_dir: ${data_root}/${test_dataset.name}
-test_data_dir: ${data_root}/${test_dataset.name}
+desc_dir_db: ${data_root}/${test_dataset_db.name}
+desc_dir_q: ${data_root}/${test_dataset_q.name}
+test_data_dir: ${data_root}/${test_dataset_db.name}
 test_gnd_file:
 batch_size: 300
 query_sequence_len: 200

@@ -30,13 +30,30 @@ class TestDataset(TensorFileDataset):
     def __init__(self, *args, sequence_len, nn_file=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.sequence_len = sequence_len
-        if nn_file is not None:
+        if 0 and nn_file is not None:
             nn_inds_path = os.path.join(self.desc_dir, nn_file)
             self.cache_nn = pickle_load(nn_inds_path)
 
             if self.name == 'gldv2-val':
                 self.num_desc = self.num_desc - 750
                 self.cache_nn = self.cache_nn[:, :-750]
+    
+    def get_im_paths(self, batch_index):
+        local_storage = h5py.File(self.local_file, 'r')
+        res = []
+        for row_idxs in batch_index:
+            names = [local_storage['file_names'][idx].decode('utf-8') for idx in row_idxs]
+            im_paths = [os.path.join(self.desc_dir, 'jpg', name) for name in names]
+            res.append(im_paths)
+        local_storage.close()
+        return res
+
+    def get_data_paths(self):
+        local_storage = h5py.File(self.local_file, 'r')
+        im_paths = [x.decode('utf-8') for x in local_storage['file_names']]
+        im_paths = [os.path.join(self.desc_dir, 'jpg', name) for name in im_paths]
+        local_storage.close()
+        return im_paths
 
     def __getitem__(self, batch_index):
         idx = np.sort(np.unique(batch_index)).tolist()

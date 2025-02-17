@@ -13,6 +13,7 @@ import numpy as np
 
 from extract.transforms import random_sized_crop, color_norm
 import torch.utils.data
+import torch.nn.functional as F
 
 # Per-channel mean and SD values in BGR order
 _MEAN = [0.406, 0.456, 0.485]
@@ -49,15 +50,21 @@ class FeatureStorage:
         if 'local' in save_type:
             self.hdf5_file = h5py.File(os.path.join(save_dir, f'{desc_name}{split}_local{extension}.hdf5'), 'w')
             self.storage['local'] = self.hdf5_file.create_dataset('features', shape=[dataset_size, topk, local_desc_dim + 5], dtype=np.float32)
-
+            self.storage['file_names'] = self.hdf5_file.create_dataset('file_names', shape=[dataset_size], dtype=h5py.special_dtype(vlen=str))
+            
+    
+    def set_names(self, names_list):
+        assert len(names_list) == self.dataset_size
+        self.storage['file_names'][:] = names_list
+        
     def __del__(self):
         if 'local' in self.storage:
             self.hdf5_file.close()
 
 
-    def save(self, feats, save_type):
+    def save(self, feats, save_type, file_name=''):
         if save_type in self.storage:
-            self.storage[save_type][self.pointer:self.pointer + len(feats)] = feats
+            self.storage[save_type][self.pointer:self.pointer + len(feats)] = feats            
 
     def update_pointer(self, size):
         self.pointer += size
@@ -84,17 +91,32 @@ class DataSet(torch.utils.data.Dataset):
     def _construct_db(self):
         """Constructs the db."""
         # Compile the split data path
-        if self.name == 'gldv2' and self.train:
-            samples = [(line.split(',')[0], int(line.split(',')[1]), int(line.split(',')[2]), int(line.split(',')[3]))
-                       for
-                       line in self.data_path]
-            self.categories = sorted(list(set([int(entry[1]) for entry in samples])))
-            cat_to_label = dict(zip(self.categories, range(len(self.categories))))
-            samples = [(entry[0], cat_to_label[entry[1]], entry[2], entry[3]) for entry in samples]
-            self.targets = np.asarray([entry[1] for entry in samples])
+        # if self.name == 'gldv2' and self.train:
+        #     samples = [(line.split(',')[0], int(line.split(',')[1]), int(line.split(',')[2]), int(line.split(',')[3]))
+        #                for
+        #                line in self.data_path]
+        #     self.categories = sorted(list(set([int(entry[1]) for entry in samples])))
+        #     cat_to_label = dict(zip(self.categories, range(len(self.categories))))
+        #     samples = [(entry[0], cat_to_label[entry[1]], entry[2], entry[3]) for entry in samples]
+        #     self.targets = np.asarray([entry[1] for entry in samples])
 
-        self.data_path = [os.path.join(self.data_path_base, i.split(',')[0]) for i in self.data_path]
+        # self.data_path = [os.path.join(self.data_path_base, i.split(',')[0]) for i in self.data_path]
+        self.data_path = [i.split(',')[0] for i in self.data_path]
         self.n = len(self.data_path)
+    
+    @staticmethod
+    def rescale_tensor(tensor, max_size=2000):
+        _, _, n, m = tensor.shape
+        max_dim = max(n, m)
+
+        if max_dim <= max_size:
+            return tensor
+
+        scale_factor = max_size / max_dim
+        new_size = (int(n * scale_factor), int(m * scale_factor))
+        rescaled_tensor = F.interpolate(tensor, size=new_size, mode='bilinear', align_corners=False)
+
+        return rescaled_tensor
 
     def _prepare_im(self, im):
         """Prepares the image for network input."""
@@ -104,7 +126,8 @@ class DataSet(torch.utils.data.Dataset):
         # [0, 255] -> [0, 1]
         im = im / 255.0
         # Color normalization
-        im = torch.from_numpy(im)
+        im = torch.from_numpy(im).unsqueeze(0)
+        im = self.rescale_tensor(im)[0]
 
         if self.norm:
             im = color_norm(im, _MEAN, _SD)
@@ -120,7 +143,10 @@ class DataSet(torch.utils.data.Dataset):
         im_list, scale_list = [], []
         for index in indices:
             try:
-                img = cv2.imread(os.path.join(self.data_path_base, self.data_path[index]))
+                img_path = os.path.join(self.data_path_base, self.data_path[index])
+                if img_path.endswith('txt'):
+                    pass
+                img = cv2.imread(img_path)
 
                 if not self.train and self.imsize is not None:
                     scales = self._scale_list * (self.imsize / max(img.shape))

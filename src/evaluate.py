@@ -23,19 +23,21 @@ def evaluate(
         temp: List[int],
         num_rerank: List[int],
         recall: List[int],
-        save_scores: bool = True) -> Tuple[Dict[str, float], float]:
+        save_scores: bool = True,
+        imgs_per_query: str = 5) -> Tuple[Dict[str, float], float]:
     model.eval()
 
     with torch.no_grad():
         torch.cuda.empty_cache()
         evaluate_function = partial(mean_average_precision_revisited_rerank, model,
-            query_loader, gallery_loader, query_loader.dataset.cache_nn,
+            query_loader, gallery_loader, None,  # query_loader.dataset.cache_nn,
             ks=recall,
             lamb=lamb,
             temp=temp,
             top_k=num_rerank,
             gnd=query_loader.dataset.gnd_data,
-            save_scores=save_scores
+            save_scores=save_scores,
+            imgs_per_query=imgs_per_query
         )
         metrics = evaluate_function()
     return metrics
@@ -49,7 +51,7 @@ def main(cfg: DictConfig):
     torch.cuda.manual_seed_all(cfg.seed)
     np.random.seed(cfg.seed)
 
-    query_loader, gallery_loader, recall_ks = get_test_loaders(cfg.desc_name, cfg.test_dataset, cfg.num_workers)
+    query_loader, gallery_loader, recall_ks = get_test_loaders(cfg.desc_name, cfg.test_dataset, cfg.test_dataset_db, cfg.test_dataset_q, cfg.num_workers)
 
     model = AMES(data_root=cfg.data_root, local_dim=gallery_loader.dataset.local_dim, **cfg.model)
 
@@ -61,7 +63,7 @@ def main(cfg: DictConfig):
     model.eval()
 
     map = evaluate(model=model, lamb=cfg.test_dataset.lamb, temp=cfg.test_dataset.temp, num_rerank=cfg.test_dataset.num_rerank,
-                   recall=recall_ks, query_loader=query_loader, gallery_loader=gallery_loader, save_scores=True)
+                   recall=recall_ks, query_loader=query_loader, gallery_loader=gallery_loader, save_scores=True, imgs_per_query=cfg.imgs_per_query)
     return map
 
 if __name__ == '__main__':

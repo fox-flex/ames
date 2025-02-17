@@ -1,3 +1,5 @@
+import os
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -25,8 +27,11 @@ class AMES(nn.Module):
 
         self.mtc_token = nn.Parameter(torch.rand(model_dim))
         if self.binarized:
+            leyer_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'chpt', 'itq_r101_cvnet_D128.npz')
             self.remap_local = nn.Sequential(
-                BinarizationLayer(file_name=f'{data_root}/networks/itq_dinov2_D128.npz', trainable=True),
+                BinarizationLayer(file_name=leyer_path, trainable=True),
+                # BinarizationLayer(file_name=f'{data_root}/chpt/itq_dinov2_D128.npz', trainable=True),
+                
                 nn.Linear(model_dim, model_dim),
                 nn.LayerNorm(model_dim))
         else:

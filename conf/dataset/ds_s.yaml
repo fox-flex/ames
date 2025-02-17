@@ -1,0 +1,6 @@
+defaults:
+  - test_dataset
+
+name: 'ds_s'
+
+# test_gnd_file: 'gnd_ds_s.pkl'

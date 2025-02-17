@@ -1,3 +1,6 @@
+import os, json
+from pprint import pprint
+
 import itertools as it
 import logging
 import torch
@@ -53,33 +56,57 @@ class AverageMeter:
             return self.latest_avg
 
 def rerank(model: nn.Module, query_loader, gallery_loader, gnd, cache_nn: torch.Tensor, device, lamb=(0.,), temp=(0.5,),
-           top_k=(100,), ks=(1,5,10), save_scores=False, hard=False):
-    nn = cache_nn.clone()
-    # Exclude the junk images as in DELG (https://github.com/tensorflow/models/blob/44cad43aadff9dd12b00d4526830f7ea0796c047/research/delf/delf/python/detect_to_retrieve/image_reranking.py#L190)
-    if gnd is not None and 'junk' in gnd[0]:
-        for i in range(len(cache_nn[0])):
-            if hard:
-                junk_ids = gnd[i]['junk'] + gnd[i]['easy']
-            else:
-                junk_ids = gnd[i]['junk']
-            is_junk = np.in1d(cache_nn[1, i], junk_ids)
-            nn[:, i] = torch.cat((cache_nn[:, i, ~is_junk], cache_nn[:, i, is_junk]), dim=1)
-    nn_sims = nn[0]
-    nn_inds = nn[1].long()
+           top_k=(100,), ks=(1,5,10), save_scores=False, hard=False, imgs_per_query: int = 5):
+    # nn = cache_nn.clone()
+    # # # Exclude the junk images as in DELG (https://github.com/tensorflow/models/blob/44cad43aadff9dd12b00d4526830f7ea0796c047/research/delf/delf/python/detect_to_retrieve/image_reranking.py#L190)
+    # # if gnd is not None and 'junk' in gnd[0]:
+    # #     for i in range(len(cache_nn[0])):
+    # #         if hard:
+    # #             junk_ids = gnd[i]['junk'] + gnd[i]['easy']
+    # #         else:
+    # #             junk_ids = gnd[i]['junk']
+    # #         is_junk = np.in1d(cache_nn[1, i], junk_ids)
+    # #         nn[:, i] = torch.cat((cache_nn[:, i, ~is_junk], cache_nn[:, i, is_junk]), dim=1)
+    # nn_sims = nn[0]
+    # nn_inds = nn[1].long()
 
     max_k = max(top_k)
     scores = []
-    for q_f, i in tqdm(query_loader):
+    # for q_f, i in tqdm(query_loader):
+    n = len(query_loader.dataset)
+    for pos, (q_f, i) in enumerate(query_loader, start=1):
+    
         q_score = []
-        gallery_loader.batch_sampler.sampler = nn_inds[i, :max_k].T.tolist()
-        for db_f, j in tqdm(gallery_loader):
+        # gallery_loader.batch_sampler.sampler = nn_inds[i, :max_k].T.tolist()
+        for db_f, j in tqdm(gallery_loader, desc=f'{pos}/{n}'):
             current_scores = model(
                 *list(map(lambda x: x.to(device, non_blocking=True), q_f)),
                 *list(map(lambda x: x.to(device, non_blocking=True), db_f)))
             q_score.append(current_scores.cpu().data)
         scores.append(torch.stack(q_score).T)
     raw_sim = torch.cat(scores)
+    
+    ranks = torch.argsort(-raw_sim, axis=1) # 70 6322 
+    ranks = ranks.data.cpu().numpy()
+    
+    ##
+    k = imgs_per_query
+    dataset_db = gallery_loader.dataset
+    dataset_q = query_loader.dataset
+    
+    q_img_paths = dataset_q.get_data_paths()
 
+    img_idxs = ranks[:, :k]
+    img_paths = dataset_db.get_im_paths(img_idxs)
+    
+    data = {q_img_path: paths for q_img_path, paths in zip(q_img_paths, img_paths)}
+    pprint(data)
+    out_file = os.path.join(dataset_db.desc_dir, '..', 'sim.json')
+    with open(out_file, 'w') as outfile:
+        json.dump(data, outfile, indent=4)  # Indent for better readability
+    return
+
+    # names = gallery_loader.dataset.
     out = {}
     for k, l, t in it.product(top_k, lamb, temp):
         log.info(f'Rerank={k}, Lambda={l}, Temp={t}')
@@ -105,10 +132,12 @@ def rerank(model: nn.Module, query_loader, gallery_loader, gnd, cache_nn: torch.
 @torch.no_grad()
 def mean_average_precision_revisited_rerank(model: nn.Module, query_loader, gallery_loader,
                                             cache_nn: torch.Tensor, ks: List[int], lamb: List[int], temp: List[int],
-                                            top_k: List[int], gnd, save_scores) -> Tuple[Dict[str, float], float]:
+                                            top_k: List[int], gnd, save_scores, imgs_per_query: int) -> Tuple[Dict[str, float], float]:
 
     device = next(model.parameters()).device
-    out, map = rerank(model, query_loader, gallery_loader, gnd, cache_nn, device, lamb, temp, top_k, ks, save_scores)
+    rerank(model, query_loader, gallery_loader, gnd, cache_nn, device, lamb, temp, top_k, ks, save_scores, imgs_per_query=imgs_per_query)
+
+    return
 
     if query_loader.dataset.name.startswith(('roxford5k', 'rparis6k')):
         h_out, h_map = rerank(model, query_loader, gallery_loader, gnd, cache_nn, device, lamb, temp, top_k, ks, save_scores, hard=True)
